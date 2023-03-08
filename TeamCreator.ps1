@@ -5,7 +5,12 @@ param(
     [ValidateScript({if (Test-Path $_) {
         $true
     }else{throw "Could not find file $_"}})]
-    [string]$InputFile,
+    [string]$PlayerInputFile,
+    [Parameter(Mandatory=$true)]
+    [ValidateScript({if (Test-Path $_) {
+        $true
+    }else{throw "Could not find file $_"}})]
+    [string]$CoachInputFile,
     [Parameter(Mandatory=$true)]
     [string]$OutputFile
 )
@@ -18,7 +23,8 @@ for ($i = 1; $i -le $TeamCount; $i++) {
         Players = @()
     }
 }
-$Players = Get-Content -Path $InputFile | ConvertFrom-Csv
+$Players = Get-Content -Path $PlayerInputFile | ConvertFrom-Csv
+$Coaches = Get-Content -Path $CoachInputFile | ConvertFrom-Csv
 $Players = $Players | sort -Property AgeInDays
 $Players | % {
     $_ | Add-Member -MemberType NoteProperty -Name ParentFullName -Value "$($_.'Parent FirstName') $($_.'Parent LastName')" -Force

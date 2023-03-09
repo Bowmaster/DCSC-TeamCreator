@@ -29,6 +29,7 @@ $StartNum = 0
 $Teams = @()
 $Players = Get-Content -Path $PlayerInputFile | ConvertFrom-Csv
 $Players = $Players | sort -Property AgeInDays
+$MaxPlayers = [math]::Ceiling(($Players.Count / $TeamCount))
 $Coaches = Get-Content -Path $CoachInputFile | ConvertFrom-Csv
 $HeadCoaches = $Coaches | ? {$_.'Team Personnel Role' -eq 'Head Coach'}
 $HeadCoaches | ? {$_.'Preferred Practice Day' -eq 'No Answer'} | % {$_.'Preferred Practice Day' = 'XX_No_Answer'}
@@ -37,11 +38,15 @@ for ($i = 1; $i -le $TeamCount; $i++) {
     $obj = New-Object PSObject
     $obj | Add-Member -MemberType NoteProperty -Name HeadCoachId -Value @($HeadCoaches | ? {$_.VolunteerID -notin $Teams.HeadCoachId})[0].VolunteerId
     $obj | Add-Member -MemberType NoteProperty -Name HeadCoachName -Value ($HeadCoaches | ? {$_.VolunteerID -eq $obj.HeadCoachId}).'Team Personnel Name'
+    $obj | Add-Member -MemberType NoteProperty -Name HeadCoachEmail -Value ($HeadCoaches | ? {$_.VolunteerID -eq $obj.HeadCoachId}).Email
     $obj | Add-Member -MemberType NoteProperty -Name AssistantCoachId -Value $null
     $obj | Add-Member -MemberType NoteProperty -Name AssistantCoachName -Value $null
+    $obj | Add-Member -MemberType NoteProperty -Name AssistantCoachEmail -Value $null
     $obj | Add-Member -MemberType NoteProperty -Name PracticeDay -Value $null
     $obj | Add-Member -MemberType NoteProperty -Name TeamName -Value "Team$(($i + $StartNum).ToString().PadLeft(2,'0'))"
     $obj | Add-Member -MemberType NoteProperty -Name Players -Value @()
+    $obj | Add-Member -MemberType ScriptProperty -Name PlayerNames -Value {$this.Players.PlayerFullName}
+    $obj | Add-Member -MemberType ScriptProperty -Name PlayerCount -Value {$this.Players.Count}
     $preferredAssistant = ($HeadCoaches | ? {$_.VolunteerId -eq $obj.HeadCoachId -and $_.'Preferred Assistant Coach?(Head Coach)' -ne 'No Answer'}).'Preferred Assistant Coach?(Head Coach)'
     if ($preferredAssistant) {
         $obj.AssistantCoachId = ($AssistantCoaches | ? {$_.'Team Personnel Name' -eq $preferredAssistant}).VolunteerId
@@ -49,6 +54,7 @@ for ($i = 1; $i -le $TeamCount; $i++) {
         $obj.AssistantCoachId = @($AssistantCoaches | ? {$_.VolunteerID -notin $Teams.AssistantCoachId -and $_.'Preferred Assistant Coach?(Head Coach)' -eq 'No Answer' -and $_.'Team Personnel Name' -notin @($HeadCoaches.'Preferred Assistant Coach?(Head Coach)')})[0].VolunteerId
     }
     $obj.AssistantCoachName = ($AssistantCoaches | ? {$_.VolunteerID -eq $obj.AssistantCoachId}).'Team Personnel Name'
+    $obj.AssistantCoachEmail = ($AssistantCoaches | ? {$_.VolunteerID -eq $obj.AssistantCoachId}).Email
     $Teams += $obj
 }
 
@@ -73,6 +79,9 @@ foreach ($team in ($Teams)) {
 
 $Players | % {
     $_ | Add-Member -MemberType NoteProperty -Name ParentFullName -Value "$($_.'Parent FirstName') $($_.'Parent LastName')" -Force
+    if ([string]::IsNullOrWhiteSpace($_.'Secondary Contact FirstName') -eq $false -and $_.'Secondary Contact FirstName' -ne 'No Answer') {
+        $_ | Add-Member -MemberType NoteProperty -Name SecondaryContactFullName -Value "$($_.'Secondary Contact FirstName') $($_.'Secondary Contact LastName')" -Force
+    }
     $_ | Add-Member -MemberType NoteProperty -Name PlayerFullName -Value $_.'Player Name' -Force
     $_ | Add-Member -MemberType NoteProperty -Name AgeInDays -Value ((Get-Date) - [datetime]$_.'Date Of Birth').Days -Force
     $_ | Add-Member -MemberType NoteProperty -Name NewTeamName -Value $null -Force
@@ -94,20 +103,76 @@ $Players | % {
         }
     }
 }
-$iTeam = 0
+#$iTeam = 0
 for ($i = 0; $i -lt $Players.Count; $i++) {
     if ($Players[$i].NewTeamName) {
         Write-Warning "Skipping player $($Players[$i].PlayerFullName) as they are already assigned to $($Players[$i].NewTeamName)"
     } else {
-        $Teams[$iTeam].Players += $Players[$i]
-        $Players[$i].NewTeamName = $Teams[$iTeam].TeamName
-        if (($iTeam + 1) -eq $Teams.Count) {
-            $iTeam = 0
-        } elseif (($iTeam + 1) -gt $Teams.Count) {
-            throw "Out of range exception for value of 'iTeams': Current = $iTeam; Max = $($Teams.Count)"
+        <#
+        
+        if ($Players[$i].PlayerFullName -like "*jones*") {
+            Write-Host "Loop is $i" -ForegroundColor Magenta
         } else {
-            $iTeam++
+            continue
         }
+        #>
+        $emails = @()
+        $eligibleTeams = $null
+        if ($Players[$i].'Primary Contact Email' -ne 'No Answer') {
+            $emails += $Players[$i].'Primary Contact Email'
+        }
+        if ($Players[$i].'Primary Contact Email' -ne 'No Answer') {
+            $emails += $Players[$i].'Secondary Contact Email'
+        }
+        $eligibleTeams = $Teams | ? {$_.HeadCoachEmail -in $emails -or $_.AssistantCoachEmail -in $emails}
+        if (-not $eligibleTeams) {
+            $eligibleTeams = @()
+            $contactNames = @()
+            $contactNames += $Players[$i].ParentFullName
+            if ($Players[$i].SecondaryContactFullName) {
+                $contactNames += $Players[$i].SecondaryContactFullName
+            }
+            $eligibleTeams += $Teams | ? {$_.HeadCoachName -in $contactNames -or $_.AssistantCoachName -in $contactNames}
+        }
+        if (-not $eligibleTeams) {
+            $eligibleTeams = @()
+            foreach ($day in $Players[$i].EligiblePracticeDays) {
+                #$eligibleTeams += $Teams | ? {$_.PracticeDay -eq $day -and $_.Players.Count -lt $MaxPlayers}
+                $eligibleTeams += $Teams | ? { $_.PracticeDay -eq $day }
+            }
+        }
+        #@($Teams | ? {$Players[$i].EligiblePracticeDays -in $_.PracticeDay})
+        if (-not $eligibleTeams) {
+            Write-Error "No eligible day, based on requested practice date, found for $($Players[$i].PlayerFullName)"
+            continue
+        } else {
+            #$et = ($eligibleTeams | Sort-Object {Get-Random})[0]
+            #$et = @(($eligibleTeams | Sort-Object -Property PlayerCount)[0..2] | Sort-Object {Get-Random})[0]
+            $et = @($eligibleTeams | Sort-Object -Property PlayerCount)[0]
+            $et.Players += $Players[$i]
+            $Players[$i].NewTeamName = $et.TeamName
+            <#      
+            for ($iTeam = 0; $i -lt $eligibleTeams.Count; $i++) {
+                $eligibleTeams[$iTeam].Players += $Players[$i]
+                $Players[$i].NewTeamName = $eligibleTeams[$iTeam].TeamName
+                $iTeam++
+            #>
+            }
+            <#
+            $eligibleTeams[$iTeam].Players += $Players[$i]
+            $Players[$i].NewTeamName = $eligibleTeams[$iTeam].TeamName
+            #$Teams[$iTeam].Players += $Players[$i]
+            #$Players[$i].NewTeamName = $Teams[$iTeam].TeamName
+            #if (($iTeam + 1) -eq $Teams.Count) {
+            if (($iTeam + 1) -eq $eligibleTeams.Count) {
+                $iTeam = 0
+            } elseif (($iTeam + 1) -gt $Teams.Count) {
+                throw "Out of range exception for value of 'iTeams': Current = $iTeam; Max = $($Teams.Count)"
+            } else {
+                $iTeam++
+            }
+            #>
+        #}
     }
 }
 
@@ -136,18 +201,24 @@ if (-not $Players.NewTeamName) {
 
 $Output = @()
 foreach ($player in $Players) {
+    $playerTeam = $Teams | ? {$_.TeamName -eq $player.NewTeamName}
     $Output += [PSCustomObject]@{
         TeamName = $player.NewTeamName
         PlayerID = $player.PlayerID
-        'VolunteerID' = $null
-        'VolunteerTypeID' = $null
+        VolunteerID = $playerTeam.HeadCoachId
+        VolunteerTypeID = if($playerTeam.HeadCoachId){5414}
         'Player Name' = $player.'Player Name'
-        'Team Personnel Name' = $null
-        'Team Personnel Role' = $null
+        'Team Personnel Name' = $playerTeam.HeadCoachName
+        'Team Personnel Role' = if($playerTeam.HeadCoachId){'Head Coach'}
     }
 }
-#$Output
+$Output
 #$Teams
-$Players
+#$Players
 
 #$Output | ConvertTo-Csv | Out-File $OutputFile -Force
+
+$objTest = New-Object psobject
+$objTest | Add-Member -MemberType NoteProperty -Name Array -Value @()
+#$objTest | Add-Member -MemberType ScriptMethod -Name Count -Value {$this.Array.Count}
+$objTest | Add-Member -MemberType ScriptProperty -Name Count -Value {$this.Array.Count}

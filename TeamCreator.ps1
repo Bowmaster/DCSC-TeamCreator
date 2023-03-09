@@ -103,19 +103,11 @@ $Players | % {
         }
     }
 }
-#$iTeam = 0
+
 for ($i = 0; $i -lt $Players.Count; $i++) {
     if ($Players[$i].NewTeamName) {
         Write-Warning "Skipping player $($Players[$i].PlayerFullName) as they are already assigned to $($Players[$i].NewTeamName)"
     } else {
-        <#
-        
-        if ($Players[$i].PlayerFullName -like "*jones*") {
-            Write-Host "Loop is $i" -ForegroundColor Magenta
-        } else {
-            continue
-        }
-        #>
         $emails = @()
         $eligibleTeams = $null
         if ($Players[$i].'Primary Contact Email' -ne 'No Answer') {
@@ -141,38 +133,27 @@ for ($i = 0; $i -lt $Players.Count; $i++) {
                 $eligibleTeams += $Teams | ? { $_.PracticeDay -eq $day }
             }
         }
-        #@($Teams | ? {$Players[$i].EligiblePracticeDays -in $_.PracticeDay})
         if (-not $eligibleTeams) {
             Write-Error "No eligible day, based on requested practice date, found for $($Players[$i].PlayerFullName)"
             continue
         } else {
             #$et = ($eligibleTeams | Sort-Object {Get-Random})[0]
             #$et = @(($eligibleTeams | Sort-Object -Property PlayerCount)[0..2] | Sort-Object {Get-Random})[0]
+            # Check for siblings
             $et = @($eligibleTeams | Sort-Object -Property PlayerCount)[0]
-            $et.Players += $Players[$i]
-            $Players[$i].NewTeamName = $et.TeamName
-            <#      
-            for ($iTeam = 0; $i -lt $eligibleTeams.Count; $i++) {
-                $eligibleTeams[$iTeam].Players += $Players[$i]
-                $Players[$i].NewTeamName = $eligibleTeams[$iTeam].TeamName
-                $iTeam++
-            #>
-            }
-            <#
-            $eligibleTeams[$iTeam].Players += $Players[$i]
-            $Players[$i].NewTeamName = $eligibleTeams[$iTeam].TeamName
-            #$Teams[$iTeam].Players += $Players[$i]
-            #$Players[$i].NewTeamName = $Teams[$iTeam].TeamName
-            #if (($iTeam + 1) -eq $Teams.Count) {
-            if (($iTeam + 1) -eq $eligibleTeams.Count) {
-                $iTeam = 0
-            } elseif (($iTeam + 1) -gt $Teams.Count) {
-                throw "Out of range exception for value of 'iTeams': Current = $iTeam; Max = $($Teams.Count)"
+            $siblings = $Players | ? {$_.UserID -eq $Players[$i].UserId}
+            if ($siblings.count -gt 1) {
+                Write-Warning "The following suspected siblings were found: $($siblings.PlayerFullName -join ', '), ensuring they're on the same team."
+                $siblings | % {
+                    $et.Players += $_
+                    $_.NewTeamName = $et.TeamName
+                }
             } else {
-                $iTeam++
+                # No Siblings
+                $et.Players += $Players[$i]
+                $Players[$i].NewTeamName = $et.TeamName
             }
-            #>
-        #}
+        }
     }
 }
 

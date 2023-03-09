@@ -1,5 +1,8 @@
 param(
     [Parameter(Mandatory=$true)]
+    [ValidateSet('U6','U8','U10','U12','U14')]
+    [string]$Division,
+    [Parameter(Mandatory=$true)]
     [int]$TeamCount,
     [Parameter(Mandatory=$true)]
     [ValidateScript({if (Test-Path $_) {
@@ -14,18 +17,60 @@ param(
     [Parameter(Mandatory=$true)]
     [string]$OutputFile
 )
-#$TeamCount = 2
+switch ($Division) {
+    'U6' { $MaxPerDayPractices = 6 }
+    'U8' { $MaxPerDayPractices = 2 }
+    'U10' { $MaxPerDayPractices = 2 }
+    'U12' { $MaxPerDayPractices = 2 }
+    'U14' { $MaxPerDayPractices = 1 }
+    Default { throw "Incorrect value for Division ($Division) was supplied"}
+}
 $StartNum = 0
 $Teams = @()
+$Players = Get-Content -Path $PlayerInputFile | ConvertFrom-Csv
+$Players = $Players | sort -Property AgeInDays
+$Coaches = Get-Content -Path $CoachInputFile | ConvertFrom-Csv
+$HeadCoaches = $Coaches | ? {$_.'Team Personnel Role' -eq 'Head Coach'}
+$HeadCoaches | ? {$_.'Preferred Practice Day' -eq 'No Answer'} | % {$_.'Preferred Practice Day' = 'XX_No_Answer'}
+$AssistantCoaches = $Coaches | ? {$_.'Team Personnel Role' -eq 'Assistant Coach'}
 for ($i = 1; $i -le $TeamCount; $i++) {
-    $Teams += [PSCustomObject]@{
-        TeamName = "Team$(($i + $StartNum).ToString().PadLeft(2,'0'))"
-        Players = @()
+    $obj = New-Object PSObject
+    $obj | Add-Member -MemberType NoteProperty -Name HeadCoachId -Value @($HeadCoaches | ? {$_.VolunteerID -notin $Teams.HeadCoachId})[0].VolunteerId
+    $obj | Add-Member -MemberType NoteProperty -Name HeadCoachName -Value ($HeadCoaches | ? {$_.VolunteerID -eq $obj.HeadCoachId}).'Team Personnel Name'
+    $obj | Add-Member -MemberType NoteProperty -Name AssistantCoachId -Value $null
+    $obj | Add-Member -MemberType NoteProperty -Name AssistantCoachName -Value $null
+    $obj | Add-Member -MemberType NoteProperty -Name PracticeDay -Value $null
+    $obj | Add-Member -MemberType NoteProperty -Name TeamName -Value "Team$(($i + $StartNum).ToString().PadLeft(2,'0'))"
+    $obj | Add-Member -MemberType NoteProperty -Name Players -Value @()
+    $preferredAssistant = ($HeadCoaches | ? {$_.VolunteerId -eq $obj.HeadCoachId -and $_.'Preferred Assistant Coach?(Head Coach)' -ne 'No Answer'}).'Preferred Assistant Coach?(Head Coach)'
+    if ($preferredAssistant) {
+        $obj.AssistantCoachId = ($AssistantCoaches | ? {$_.'Team Personnel Name' -eq $preferredAssistant}).VolunteerId
+    } else {
+        $obj.AssistantCoachId = @($AssistantCoaches | ? {$_.VolunteerID -notin $Teams.AssistantCoachId -and $_.'Preferred Assistant Coach?(Head Coach)' -eq 'No Answer' -and $_.'Team Personnel Name' -notin @($HeadCoaches.'Preferred Assistant Coach?(Head Coach)')})[0].VolunteerId
+    }
+    $obj.AssistantCoachName = ($AssistantCoaches | ? {$_.VolunteerID -eq $obj.AssistantCoachId}).'Team Personnel Name'
+    $Teams += $obj
+}
+
+foreach ($team in ($Teams)) {
+    $row = $HeadCoaches | ? {$team.HeadCoachId -eq $_.VolunteerId}
+    switch -wildcard ($row.'Preferred Practice Day'.ToLower()) {
+        "mon*" { $eligibleCoachPractice = @('Monday') }
+        "tues*" { $eligibleCoachPractice = @('Tuesday') }
+        "wed*" { $eligibleCoachPractice = @('Wednesday') }
+        "thur*" { $eligibleCoachPractice = @('Thursday') }
+        Default { $eligibleCoachPractice = @('Monday','Tuesday','Wednesday','Thursday') }
+    }
+    foreach ($day in $eligibleCoachPractice) {
+        if (($Teams.PracticeDay | ? {$_ -eq $day}).Count -le $MaxPerDayPractices) {
+            $team.PracticeDay = $day
+        }
+    }
+    if (-not $team.PracticeDay) {
+        Write-Warning "A suitable practice day could not be found for team $($team.TeamName), coach $($team.HeadCoachName)"
     }
 }
-$Players = Get-Content -Path $PlayerInputFile | ConvertFrom-Csv
-$Coaches = Get-Content -Path $CoachInputFile | ConvertFrom-Csv
-$Players = $Players | sort -Property AgeInDays
+
 $Players | % {
     $_ | Add-Member -MemberType NoteProperty -Name ParentFullName -Value "$($_.'Parent FirstName') $($_.'Parent LastName')" -Force
     $_ | Add-Member -MemberType NoteProperty -Name PlayerFullName -Value $_.'Player Name' -Force
@@ -45,7 +90,7 @@ $Players | % {
             # Any day is ok
             continue
         } else {
-            $_.EligiblePracticeDays = $_.EligiblePracticeDays | ? {$_ -ne '$day'}
+            $_.EligiblePracticeDays = $_.EligiblePracticeDays | ? {$_ -ne $day}
         }
     }
 }
@@ -101,4 +146,8 @@ foreach ($player in $Players) {
         'Team Personnel Role' = $null
     }
 }
-$Output | ConvertTo-Csv | Out-File $OutputFile -Force
+#$Output
+#$Teams
+$Players
+
+#$Output | ConvertTo-Csv | Out-File $OutputFile -Force

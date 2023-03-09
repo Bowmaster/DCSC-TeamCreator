@@ -181,25 +181,42 @@ if (-not $Players.NewTeamName) {
 }
 
 $Output = @()
-foreach ($player in $Players) {
-    $playerTeam = $Teams | ? {$_.TeamName -eq $player.NewTeamName}
+foreach ($player in ($Players | Sort-Object -Property NewTeamName)) {
+    #$playerTeam = $Teams | ? {$_.TeamName -eq $player.NewTeamName}
     $Output += [PSCustomObject]@{
         TeamName = $player.NewTeamName
         PlayerID = $player.PlayerID
-        VolunteerID = $playerTeam.HeadCoachId
-        VolunteerTypeID = if($playerTeam.HeadCoachId){5414}
+        VolunteerID = $null
+        VolunteerTypeID = $null
         'Player Name' = $player.'Player Name'
-        'Team Personnel Name' = $playerTeam.HeadCoachName
-        'Team Personnel Role' = if($playerTeam.HeadCoachId){'Head Coach'}
+        'Team Personnel Name' = $null
+        'Team Personnel Role' = $null
     }
 }
-$Output
+foreach ($team in $Teams) {
+    $Output += [PSCustomObject]@{
+        TeamName = $team.TeamName
+        PlayerID = $null
+        VolunteerID = $team.HeadCoachId
+        VolunteerTypeID = 5414
+        'Player Name' = $null
+        'Team Personnel Name' = $team.HeadCoachName
+        'Team Personnel Role' = 'Head Coach'
+    }
+    if ($team.AssistantCoachId) {
+        $Output += [PSCustomObject]@{
+            TeamName = $team.TeamName
+            PlayerID = $null
+            VolunteerID = $team.AssistantCoachId
+            VolunteerTypeID = 5416
+            'Player Name' = $null
+            'Team Personnel Name' = $team.AssistantCoachName
+            'Team Personnel Role' = 'Assistant Coach'
+        }
+    }
+}
+#$Output
 #$Teams
 #$Players
 
-#$Output | ConvertTo-Csv | Out-File $OutputFile -Force
-
-$objTest = New-Object psobject
-$objTest | Add-Member -MemberType NoteProperty -Name Array -Value @()
-#$objTest | Add-Member -MemberType ScriptMethod -Name Count -Value {$this.Array.Count}
-$objTest | Add-Member -MemberType ScriptProperty -Name Count -Value {$this.Array.Count}
+$Output | ConvertTo-Csv | Out-File $OutputFile -Force

@@ -45,7 +45,7 @@ for ($i = 1; $i -le $TeamCount; $i++) {
     $obj | Add-Member -MemberType NoteProperty -Name PracticeDay -Value $null
     $obj | Add-Member -MemberType NoteProperty -Name TeamName -Value "Team$(($i + $StartNum).ToString().PadLeft(2,'0'))"
     $obj | Add-Member -MemberType NoteProperty -Name Players -Value @()
-    $obj | Add-Member -MemberType ScriptProperty -Name PlayerNames -Value {$this.Players.PlayerFullName}
+    $obj | Add-Member -MemberType ScriptProperty -Name PlayerNames -Value {$this.Players.PlayerFullName | Sort-Object}
     $obj | Add-Member -MemberType ScriptProperty -Name PlayerCount -Value {$this.Players.Count}
     $preferredAssistant = ($HeadCoaches | ? {$_.VolunteerId -eq $obj.HeadCoachId -and $_.'Preferred Assistant Coach?(Head Coach)' -ne 'No Answer'}).'Preferred Assistant Coach?(Head Coach)'
     if ($preferredAssistant) {

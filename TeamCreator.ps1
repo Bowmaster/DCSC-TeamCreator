@@ -11,6 +11,10 @@ param(
     [string]$ProcessGender,
 
     [Parameter(Mandatory=$true)]
+    [ValidateSet('Coed','NonCoed')]
+    [string]$TeamGenderType,
+
+    [Parameter(Mandatory=$true)]
     [ValidateScript({if (Test-Path $_) {
         $true
     }else{throw "Could not find file $_"}})]
@@ -48,6 +52,10 @@ $Players = $Players | ? {$_.PlayerId -match '^[0-9]+$' -and [int]$_.PlayerId -ge
 if (-not $Players) {
    throw "No usable player data was found from $PlayerInputFile! Please check the file contents and try again."
 }
+
+if ($TeamGenderType -eq 'Coed') {
+    # Nothing to do, this is easy as we don't have to filter anything
+}
 if ($ProcessGender -eq "Coed") {
     # Nothing to do, this is easy as we don't have to filter anything
 } elseif ($ProcessGender -eq "Male") {
@@ -79,6 +87,7 @@ for ($i = 1; $i -le $TeamCount; $i++) {
     $obj | Add-Member -MemberType NoteProperty -Name AssistantCoachId -Value $null
     $obj | Add-Member -MemberType NoteProperty -Name AssistantCoachName -Value $null
     $obj | Add-Member -MemberType NoteProperty -Name AssistantCoachEmail -Value $null
+    $obj | Add-Member -MemberType NoteProperty -Name Gender -Value $ProcessGender
     $obj | Add-Member -MemberType NoteProperty -Name PracticeDay -Value $null
     $obj | Add-Member -MemberType NoteProperty -Name PreferredPracticeTime -Value ($HeadCoaches | ? {$_.VolunteerID -eq $obj.HeadCoachId}).'Preferred Practice Time'
     $obj | Add-Member -MemberType NoteProperty -Name TeamName -Value "Team$(($i + $StartNum).ToString().PadLeft(2,'0'))"
@@ -197,6 +206,8 @@ for ($i = 0; $i -lt $Players.Count; $i++) {
                 $eligibleTeams += $Teams | ? { $_.PracticeDay -eq $day }
             }
         }
+        # Basically this is ensuring that coed teams can have players assigned anywhere otherwise match the first letter of Team and Player Gender via index which should return M or F 
+        $eligibleTeams = $eligibleTeams | ? {$_.Gender -eq 'Coed' -or $_.Gender[0] -eq $Players[$i].Gender[0]}
         if (-not $eligibleTeams) {
             Write-Error "No eligible day, based on requested practice date, found for $($Players[$i].PlayerFullName)"
             continue

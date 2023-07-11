@@ -51,11 +51,11 @@ if (-not $Players) {
 if ($ProcessGender -eq "Coed") {
     # Nothing to do, this is easy as we don't have to filter anything
 } elseif ($ProcessGender -eq "Male") {
-    $Players = $Players | ? {$_.Gender -eq 'M'}
     $ignoredPlayers = $Players | ? {$_.Gender -eq 'F'}
+    $Players = $Players | ? {$_.Gender -eq 'M'}
 } elseif ($ProcessGender -eq "Female") {
-    $Players = $Players | ? {$_.Gender -eq 'F'}
     $ignoredPlayers = $Players | ? {$_.Gender -eq 'M'}
+    $Players = $Players | ? {$_.Gender -eq 'F'}
 } else {
     throw "Couldn't figure out how to handle Gender here..."
 }

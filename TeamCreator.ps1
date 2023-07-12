@@ -11,10 +11,6 @@ param(
     [string]$ProcessGender,
 
     [Parameter(Mandatory=$true)]
-    [ValidateSet('Coed','NonCoed')]
-    [string]$TeamGenderType,
-
-    [Parameter(Mandatory=$true)]
     [ValidateScript({if (Test-Path $_) {
         $true
     }else{throw "Could not find file $_"}})]
@@ -53,17 +49,16 @@ if (-not $Players) {
    throw "No usable player data was found from $PlayerInputFile! Please check the file contents and try again."
 }
 
-if ($TeamGenderType -eq 'Coed') {
-    # Nothing to do, this is easy as we don't have to filter anything
-}
 if ($ProcessGender -eq "Coed") {
     # Nothing to do, this is easy as we don't have to filter anything
 } elseif ($ProcessGender -eq "Male") {
     $ignoredPlayers = $Players | ? {$_.Gender -eq 'F'}
     $Players = $Players | ? {$_.Gender -eq 'M'}
+    $nameTag = "BOYS"
 } elseif ($ProcessGender -eq "Female") {
     $ignoredPlayers = $Players | ? {$_.Gender -eq 'M'}
     $Players = $Players | ? {$_.Gender -eq 'F'}
+    $nameTag = "GIRLS"
 } else {
     throw "Couldn't figure out how to handle Gender here..."
 }
@@ -76,9 +71,6 @@ $IneligibleCoaches = $Coaches | ? {$_.Email -in $ignoredPlayers.'Primary Contact
 $HeadCoaches = $Coaches | ? {$_.'Team Personnel Role' -eq 'Head Coach'} | ? {$_.VolunteerId -notin $IneligibleCoaches.VolunteerId}
 #$HeadCoaches | ? {$_.'Preferred Practice Day' -eq 'No Answer'} | % {$_.'Preferred Practice Day' = 'XX_No_Answer'}
 $AssistantCoaches = $Coaches | ? {$_.'Team Personnel Role' -eq 'Assistant Coach' -and $_.UserId -notin $HeadCoaches.UserId} | ? {$_.VolunteerId -notin $IneligibleCoaches.VolunteerId}
-Write-Host "HeadCoaches: $($HeadCoaches.'Team Personnel Name')"
-Write-Host "AssistantCoaches: $($AssistantCoaches.'Team Personnel Name')"
-timeout -1
 for ($i = 1; $i -le $TeamCount; $i++) {
     $obj = New-Object PSObject
     $obj | Add-Member -MemberType NoteProperty -Name HeadCoachId -Value @($HeadCoaches | ? {$_.VolunteerID -notin $Teams.HeadCoachId})[0].VolunteerId
@@ -87,13 +79,14 @@ for ($i = 1; $i -le $TeamCount; $i++) {
     $obj | Add-Member -MemberType NoteProperty -Name AssistantCoachId -Value $null
     $obj | Add-Member -MemberType NoteProperty -Name AssistantCoachName -Value $null
     $obj | Add-Member -MemberType NoteProperty -Name AssistantCoachEmail -Value $null
-    $obj | Add-Member -MemberType NoteProperty -Name Gender -Value $ProcessGender
+    $obj | Add-Member -MemberType NoteProperty -Name Gender -Value ($ProcessGender)
     $obj | Add-Member -MemberType NoteProperty -Name PracticeDay -Value $null
     $obj | Add-Member -MemberType NoteProperty -Name PreferredPracticeTime -Value ($HeadCoaches | ? {$_.VolunteerID -eq $obj.HeadCoachId}).'Preferred Practice Time'
     $obj | Add-Member -MemberType NoteProperty -Name TeamName -Value "Team$(($i + $StartNum).ToString().PadLeft(2,'0'))"
     $obj | Add-Member -MemberType NoteProperty -Name Players -Value @()
     $obj | Add-Member -MemberType ScriptProperty -Name PlayerNames -Value {$this.Players.PlayerFullName | Sort-Object}
     $obj | Add-Member -MemberType ScriptProperty -Name PlayerCount -Value {$this.Players.Count}
+
     $preferredAssistant = ($HeadCoaches | ? {$_.VolunteerId -eq $obj.HeadCoachId -and $_.'Preferred Assistant Coach?(Head Coach)' -ne 'No Answer'}).'Preferred Assistant Coach?(Head Coach)'
     if ($preferredAssistant) {
         $obj.AssistantCoachId = ($AssistantCoaches | ? {$_.'Team Personnel Name' -eq $preferredAssistant}).VolunteerId
@@ -104,7 +97,9 @@ for ($i = 1; $i -le $TeamCount; $i++) {
     $obj.AssistantCoachEmail = ($AssistantCoaches | ? {$_.VolunteerID -eq $obj.AssistantCoachId}).Email
     $Teams += $obj
     if ($obj.HeadCoachId) {
-        $obj.TeamName = "$($obj.TeamName)-$($obj.HeadCoachName.Split(' ')[-1])$(if($obj.AssistantCoachName){"/$($obj.AssistantCoachName.Split(' ')[-1])"})"
+        $obj.TeamName = "$($obj.TeamName)-$($obj.HeadCoachName.Split(' ')[-1])$(if($obj.AssistantCoachName){"/$($obj.AssistantCoachName.Split(' ')[-1])"}) ($nameTag)"
+    } else {
+        $obj.TeamName = "$($obj.TeamName) ($nameTag)"
     }
 }
 

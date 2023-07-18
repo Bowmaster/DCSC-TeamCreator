@@ -51,6 +51,10 @@ if (-not $Players) {
 
 if ($ProcessGender -eq "Coed") {
     # Nothing to do, this is easy as we don't have to filter anything
+    $MalePlayers = $Players | ? {$_.Gender -eq 'M'}
+    $FemalePlayers = $Players | ? {$_.Gender -eq 'F'}
+    $nameTag = "COED"
+
 } elseif ($ProcessGender -eq "Male") {
     $ignoredPlayers = $Players | ? {$_.Gender -eq 'F'}
     $Players = $Players | ? {$_.Gender -eq 'M'}
@@ -171,60 +175,78 @@ $Players | % {
         }
     }
 }
-$Players = $Players | Sort-Object -Property AgeInDays
-for ($i = 0; $i -lt $Players.Count; $i++) {
-    if ($Players[$i].NewTeamName) {
-        Write-Warning "Skipping player $($Players[$i].PlayerFullName) as they are already assigned to $($Players[$i].NewTeamName)"
-    } else {
-        $emails = @()
-        $eligibleTeams = $null
-        if ($Players[$i].'Primary Contact Email' -ne 'No Answer') {
-            $emails += $Players[$i].'Primary Contact Email'
-        }
-        if ($Players[$i].'Primary Contact Email' -ne 'No Answer') {
-            $emails += $Players[$i].'Secondary Contact Email'
-        }
-        $eligibleTeams = $Teams | ? {$_.HeadCoachEmail -in $emails -or $_.AssistantCoachEmail -in $emails}
-        if (-not $eligibleTeams) {
-            $eligibleTeams = @()
-            $contactNames = @()
-            $contactNames += $Players[$i].ParentFullName
-            if ($Players[$i].SecondaryContactFullName) {
-                $contactNames += $Players[$i].SecondaryContactFullName
-            }
-            $eligibleTeams += $Teams | ? {$_.HeadCoachName -in $contactNames -or $_.AssistantCoachName -in $contactNames}
-        }
-        if (-not $eligibleTeams) {
-            $eligibleTeams = @()
-            foreach ($day in $Players[$i].EligiblePracticeDays) {
-                #$eligibleTeams += $Teams | ? {$_.PracticeDay -eq $day -and $_.Players.Count -lt $MaxPlayers}
-                $eligibleTeams += $Teams | ? { $_.PracticeDay -eq $day }
-            }
-        }
-        # Basically this is ensuring that coed teams can have players assigned anywhere otherwise match the first letter of Team and Player Gender via index which should return M or F 
-        $eligibleTeams = $eligibleTeams | ? {$_.Gender -eq 'Coed' -or $_.Gender[0] -eq $Players[$i].Gender[0]}
-        if (-not $eligibleTeams) {
-            Write-Error "No eligible day, based on requested practice date, found for $($Players[$i].PlayerFullName)"
-            continue
+
+function AssignPlayers {
+    param (
+        [PSCustomObject]$PlayerObject
+    )
+    for ($i = 0; $i -lt $Players.Count; $i++) {
+        if ($Players[$i].NewTeamName) {
+            Write-Warning "Skipping player $($Players[$i].PlayerFullName) as they are already assigned to $($Players[$i].NewTeamName)"
         } else {
-            #$et = ($eligibleTeams | Sort-Object {Get-Random})[0]
-            #$et = @(($eligibleTeams | Sort-Object -Property PlayerCount)[0..2] | Sort-Object {Get-Random})[0]
-            # Check for siblings
-            $et = @($eligibleTeams | Sort-Object -Property PlayerCount)[0]
-            $siblings = $Players | ? {$_.UserID -eq $Players[$i].UserId}
-            if ($siblings.count -gt 1) {
-                Write-Warning "The following suspected siblings were found: $($siblings.PlayerFullName -join ', '), ensuring they're on the same team."
-                $siblings | % {
-                    $et.Players += $_
-                    $_.NewTeamName = $et.TeamName
+            $emails = @()
+            $eligibleTeams = $null
+            if ($Players[$i].'Primary Contact Email' -ne 'No Answer') {
+                $emails += $Players[$i].'Primary Contact Email'
+            }
+            if ($Players[$i].'Primary Contact Email' -ne 'No Answer') {
+                $emails += $Players[$i].'Secondary Contact Email'
+            }
+            $eligibleTeams = $Teams | ? {$_.HeadCoachEmail -in $emails -or $_.AssistantCoachEmail -in $emails}
+            if (-not $eligibleTeams) {
+                $eligibleTeams = @()
+                $contactNames = @()
+                $contactNames += $Players[$i].ParentFullName
+                if ($Players[$i].SecondaryContactFullName) {
+                    $contactNames += $Players[$i].SecondaryContactFullName
                 }
+                $eligibleTeams += $Teams | ? {$_.HeadCoachName -in $contactNames -or $_.AssistantCoachName -in $contactNames}
+            }
+            if (-not $eligibleTeams) {
+                $eligibleTeams = @()
+                foreach ($day in $Players[$i].EligiblePracticeDays) {
+                    #$eligibleTeams += $Teams | ? {$_.PracticeDay -eq $day -and $_.Players.Count -lt $MaxPlayers}
+                    $eligibleTeams += $Teams | ? { $_.PracticeDay -eq $day }
+                }
+            }
+            # Basically this is ensuring that coed teams can have players assigned anywhere otherwise match the first letter of Team and Player Gender via index which should return M or F 
+            $eligibleTeams = $eligibleTeams | ? {$_.Gender -eq 'Coed' -or $_.Gender[0] -eq $Players[$i].Gender[0]}
+            if (-not $eligibleTeams) {
+                Write-Error "No eligible day, based on requested practice date, found for $($Players[$i].PlayerFullName)"
+                continue
             } else {
-                # No Siblings
-                $et.Players += $Players[$i]
-                $Players[$i].NewTeamName = $et.TeamName
+                #$et = ($eligibleTeams | Sort-Object {Get-Random})[0]
+                #$et = @(($eligibleTeams | Sort-Object -Property PlayerCount)[0..2] | Sort-Object {Get-Random})[0]
+                # Check for siblings
+                $et = @($eligibleTeams | Sort-Object -Property PlayerCount)[0]
+                $siblings = $Players | ? {$_.UserID -eq $Players[$i].UserId}
+                if ($siblings.count -gt 1) {
+                    Write-Warning "The following suspected siblings were found: $($siblings.PlayerFullName -join ', '), ensuring they're on the same team."
+                    $siblings | % {
+                        $et.Players += $_
+                        $_.NewTeamName = $et.TeamName
+                    }
+                } else {
+                    # No Siblings
+                    $et.Players += $Players[$i]
+                    $Players[$i].NewTeamName = $et.TeamName
+                }
             }
         }
     }
+}
+
+$Players = $Players | Sort-Object -Property AgeInDays
+if ($MalePlayers) {
+    $MalePlayers = $MalePlayers | Sort-Object -Property AgeInDays
+    AssignPlayers -PlayerObject $MalePlayers
+}
+if ($FemalePlayers) {
+    $FemalePlayers = $FemalePlayers | Sort-Object -Property AgeInDays
+    AssignPlayers -PlayerObject $FemalePlayers
+}
+if ($Players -and (-not $MalePlayers -and -not $FemalePlayers) ) {
+    AssignPlayers -PlayerObject $Players
 }
 
 $TotalPlayers = 0
